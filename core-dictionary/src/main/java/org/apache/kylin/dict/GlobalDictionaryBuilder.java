@@ -20,6 +20,7 @@ package org.apache.kylin.dict;
 
 import java.io.IOException;
 
+import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.Dictionary;
 
 /**
@@ -28,7 +29,7 @@ import org.apache.kylin.common.util.Dictionary;
  * Created by sunyerui on 16/5/24.
  */
 public class GlobalDictionaryBuilder implements IDictionaryBuilder {
-    AppendTrieDictionary.Builder<String> builder;
+    AppendTrieDictionaryBuilder builder;
     int baseId;
 
     @Override
@@ -36,19 +37,20 @@ public class GlobalDictionaryBuilder implements IDictionaryBuilder {
         if (dictInfo == null) {
             throw new IllegalArgumentException("GlobalDictinaryBuilder must used with an existing DictionaryInfo");
         }
-        this.builder = AppendTrieDictionary.Builder.getInstance(dictInfo.getResourceDir());
+
+        int maxEntriesPerSlice = KylinConfig.getInstanceFromEnv().getAppendDictEntrySize();
+        this.builder = new AppendTrieDictionaryBuilder(dictInfo.getResourceDir(), maxEntriesPerSlice);
         this.baseId = baseId;
     }
-    
+
     @Override
     public boolean addValue(String value) {
         if (value == null)
             return false;
-        
         builder.addValue(value);
         return true;
     }
-    
+
     @Override
     public Dictionary<String> build() throws IOException {
         return builder.build(baseId);

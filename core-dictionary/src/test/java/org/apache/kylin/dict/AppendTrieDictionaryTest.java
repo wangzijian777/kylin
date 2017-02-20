@@ -18,6 +18,7 @@
 
 package org.apache.kylin.dict;
 
+import static org.apache.kylin.dict.GlobalDictHDFSStore.V2_INDEX_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -29,61 +30,74 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.kylin.common.util.HadoopUtil;
+import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.LocalFileMetadataTestCase;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- * Created by sunyerui on 16/4/28.
- */
 public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
 
-    public static final String BASE_DIR = "file:///tmp/kylin_append_dict";
-    public static final String RESOURCE_DIR = "/dict/append_dict_test";
+    private static final UUID uuid = UUID.randomUUID();
+    private static final String BASE_DIR = "file:///tmp/kylin_append_dict/" + uuid;
+    private static final String RESOURCE_DIR = "/dict/append_dict_test";
+    private static final String LOCAL_BASE_DIR = "/tmp/kylin_append_dict/" + uuid + "/kylin_metadata/resources/GlobalDict" + RESOURCE_DIR + "/";
 
     @Before
-    public void setUp() {
+    public void beforeTest() {
         staticCreateTestMetadata();
-        System.setProperty("kylin.dictionary.append-entry-size", "50000");
-        System.setProperty("kylin.env.hdfs-working-dir", BASE_DIR);
+        KylinConfig config = KylinConfig.getInstanceFromEnv();
+        config.setProperty("kylin.dictionary.append-entry-size", "50000");
+        config.setProperty("kylin.env.hdfs-working-dir", BASE_DIR);
     }
 
     @After
-    public void after() {
+    public void afterTest() {
         cleanup();
         staticCleanupTestMetadata();
     }
 
-    public static void cleanup() {
+    private void cleanup() {
         Path basePath = new Path(BASE_DIR);
         try {
             HadoopUtil.getFileSystem(basePath).delete(basePath, true);
-        } catch (IOException e) {}
+        } catch (IOException e) {
+        }
     }
 
-    public static final String[] words = new String[] { "paint", "par", "part", "parts", "partition", "partitions", "party", "partie", "parties", "patient", "taste", "tar", "trie", "try", "tries", "字典", "字典树", "字母", // non-ascii characters
+    private static final String[] words = new String[] { "paint", "par", "part", "parts", "partition", "partitions", "party", "partie", "parties", "patient", "taste", "tar", "trie", "try", "tries", "字典", "字典树", "字母", // non-ascii characters
             "", // empty
-            "paiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
-            "paiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiipaiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "paiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii", "paiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiipaiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
             "paintjkjdfklajkdljfkdsajklfjklsadjkjekjrklewjrklewjklrjklewjkljkljkljkljweklrjewkljrklewjrlkjewkljrkljkljkjlkjjkljkljkljkljlkjlkjlkjljdfadfads" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk"
-              + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk",
+                    + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk" + "dddddddddddddddddddddddddddddddddddddddddddddddddkfjadslkfjdsakljflksadjklfjklsjfkljwelkrjewkljrklewjklrjelkwjrklewjrlkjwkljerklkljlkjrlkwejrk",
             "paint", "tar", "try", // some dup
     };
+
+    private static AppendTrieDictionaryBuilder createBuilder(String resourceDir) throws IOException {
+        int maxEntriesPerSlice = KylinConfig.getInstanceFromEnv().getAppendDictEntrySize();
+        return new AppendTrieDictionaryBuilder(resourceDir, maxEntriesPerSlice);
+    }
 
     @Test
     public void testStringRepeatly() throws IOException {
@@ -94,20 +108,22 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         notfound.add("pars");
         notfound.add("tri");
         notfound.add("字");
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 50; i++) {
             testStringDictAppend(list, notfound, true);
+            //to speed up the test
+            cleanup();
         }
     }
 
     @Test
-    public void englishWordsTest() throws Exception {
+    public void testEnglishWords() throws Exception {
         InputStream is = new FileInputStream("src/test/resources/dict/english-words.80 (scowl-2015.05.18).txt");
         ArrayList<String> str = loadStrings(is);
         testStringDictAppend(str, null, false);
     }
 
     @Test
-    public void categoryNamesTest() throws Exception {
+    public void testCategoryNames() throws Exception {
         InputStream is = new FileInputStream("src/test/resources/dict/dw_category_grouping_names.dat");
         ArrayList<String> str = loadStrings(is);
         testStringDictAppend(str, null, true);
@@ -133,7 +149,8 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
     @Ignore("need huge key set")
     @Test
     public void testHugeKeySet() throws IOException {
-        AppendTrieDictionary.Builder<String> b = AppendTrieDictionary.Builder.getInstance(RESOURCE_DIR);
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+
         AppendTrieDictionary<String> dict = null;
 
         InputStream is = new FileInputStream("src/test/resources/dict/huge_key");
@@ -143,13 +160,13 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
             while ((word = reader.readLine()) != null) {
                 word = word.trim();
                 if (!word.isEmpty())
-                    b.addValue(word);
+                    builder.addValue(word);
             }
         } finally {
             reader.close();
             is.close();
         }
-        dict = b.build(0);
+        dict = builder.build(0);
         dict.dump(System.out);
     }
 
@@ -162,8 +179,8 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         }
         BytesConverter converter = new StringBytesConverter();
 
-        AppendTrieDictionary.Builder<String> b = AppendTrieDictionary.Builder.getInstance(RESOURCE_DIR);
-        AppendTrieDictionary<String> dict = null;
+        AppendTrieDictionaryBuilder b = createBuilder(RESOURCE_DIR);
+
         TreeMap<Integer, String> checkMap = new TreeMap<>();
         int firstAppend = rnd.nextInt(strList.size() / 2);
         int secondAppend = firstAppend + rnd.nextInt((strList.size() - firstAppend) / 2);
@@ -173,7 +190,7 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         for (; appendIndex < firstAppend; appendIndex++) {
             b.addValue(strList.get(appendIndex));
         }
-        dict = b.build(0);
+        AppendTrieDictionary<String> dict = b.build(0);
         dict.dump(System.out);
         for (; checkIndex < firstAppend; checkIndex++) {
             String str = strList.get(checkIndex);
@@ -185,13 +202,13 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         }
 
         // reopen dict and append
-//        b = AppendTrieDictionary.Builder.create(dict);
-        b = AppendTrieDictionary.Builder.getInstance(RESOURCE_DIR, dict);
+        b = createBuilder(RESOURCE_DIR);
+
         for (; appendIndex < secondAppend; appendIndex++) {
             b.addValue(strList.get(appendIndex));
         }
-        AppendTrieDictionary newDict = b.build(0);
-        assert newDict == dict;
+        AppendTrieDictionary<String> newDict = b.build(0);
+        assert newDict.equals(dict);
         dict = newDict;
         dict.dump(System.out);
         checkIndex = 0;
@@ -210,12 +227,13 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         }
 
         // reopen dict and append rest str
-        b = AppendTrieDictionary.Builder.getInstance(RESOURCE_DIR, dict);
+        b = createBuilder(RESOURCE_DIR);
+
         for (; appendIndex < strList.size(); appendIndex++) {
             b.addValue(strList.get(appendIndex));
         }
         newDict = b.build(0);
-        assert newDict == dict;
+        assert newDict.equals(dict);
         dict = newDict;
         dict.dump(System.out);
         checkIndex = 0;
@@ -268,7 +286,7 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
 
     @Test
     public void testMaxInteger() throws IOException {
-        AppendTrieDictionary.Builder<String> builder = AppendTrieDictionary.Builder.getInstance(RESOURCE_DIR);
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
         builder.setMaxId(Integer.MAX_VALUE - 2);
         builder.addValue("a");
         builder.addValue("ab");
@@ -284,7 +302,7 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
     @Ignore("Only occurred when value is very long (>8000 bytes)")
     @Test
     public void testSuperLongValue() throws IOException {
-        AppendTrieDictionary.Builder<String> builder = AppendTrieDictionary.Builder.getInstance(RESOURCE_DIR);
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
         String value = "a";
         for (int i = 0; i < 10000; i++) {
             value += "a";
@@ -302,14 +320,12 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
     private static class SharedBuilderThread extends Thread {
         CountDownLatch startLatch;
         CountDownLatch finishLatch;
-        String resourcePath;
         String prefix;
         int count;
 
-        SharedBuilderThread(CountDownLatch startLatch, CountDownLatch finishLatch, String resourcePath, String prefix, int count) {
+        SharedBuilderThread(CountDownLatch startLatch, CountDownLatch finishLatch, String prefix, int count) {
             this.startLatch = startLatch;
             this.finishLatch = finishLatch;
-            this.resourcePath = resourcePath;
             this.prefix = prefix;
             this.count = count;
         }
@@ -317,27 +333,28 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         @Override
         public void run() {
             try {
-                AppendTrieDictionary.Builder<String> builder = AppendTrieDictionary.Builder.getInstance(resourcePath);
+                AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
                 startLatch.countDown();
                 for (int i = 0; i < count; i++) {
                     builder.addValue(prefix + i);
                 }
                 builder.build(0);
                 finishLatch.countDown();
-            } catch (IOException e) {}
+            } catch (IOException e) {
+            }
         }
     }
 
+    @Ignore
     @Test
     public void testSharedBuilder() throws IOException, InterruptedException {
-        String resourcePath = "shared_builder";
         final CountDownLatch startLatch = new CountDownLatch(3);
         final CountDownLatch finishLatch = new CountDownLatch(3);
 
-        AppendTrieDictionary.Builder<String> builder = AppendTrieDictionary.Builder.getInstance(resourcePath);
-        Thread t1 = new SharedBuilderThread(startLatch, finishLatch, resourcePath, "t1_", 10000);
-        Thread t2 = new SharedBuilderThread(startLatch, finishLatch, resourcePath, "t2_", 10);
-        Thread t3 = new SharedBuilderThread(startLatch, finishLatch, resourcePath, "t3_", 100000);
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+        Thread t1 = new SharedBuilderThread(startLatch, finishLatch, "t1_", 10000);
+        Thread t2 = new SharedBuilderThread(startLatch, finishLatch, "t2_", 10);
+        Thread t3 = new SharedBuilderThread(startLatch, finishLatch, "t3_", 100000);
         t1.start();
         t2.start();
         t3.start();
@@ -345,23 +362,230 @@ public class AppendTrieDictionaryTest extends LocalFileMetadataTestCase {
         AppendTrieDictionary dict = builder.build(0);
         assertTrue("AppendDictBuilder Thread too slow", finishLatch.await(3000, TimeUnit.MILLISECONDS));
         assertEquals(110010, dict.getMaxId());
-        try {
-            builder.addValue("fail");
-            fail("Builder should be closed");
-        } catch (Exception e) {}
 
-        builder = AppendTrieDictionary.Builder.getInstance(resourcePath, dict);
+        builder = createBuilder(RESOURCE_DIR);
         builder.addValue("success");
+        builder.addValue("s");
         dict = builder.build(0);
-        for (int i = 0; i < 10000; i ++) {
+        for (int i = 0; i < 10000; i++) {
             assertNotEquals(-1, dict.getIdFromValue("t1_" + i));
         }
-        for (int i = 0; i < 10; i ++) {
+        for (int i = 0; i < 10; i++) {
             assertNotEquals(-1, dict.getIdFromValue("t2_" + i));
         }
-        for (int i = 0; i < 100000; i ++) {
+        for (int i = 0; i < 100000; i++) {
             assertNotEquals(-1, dict.getIdFromValue("t3_" + i));
         }
         assertEquals(110011, dict.getIdFromValue("success"));
+        assertEquals(110012, dict.getIdFromValue("s"));
     }
+
+    @Test
+    public void testSplitContainSuperLongValue() throws IOException {
+        String superLongValue = "%5Cx1A%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%7E%29%5CxEF%5CxBF%5CxBD%5Cx1B+%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5Cx13%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5B";
+
+        createAppendTrieDict(Arrays.asList("a", superLongValue));
+    }
+
+    @Test
+    public void testSuperLongValueAsFileName() throws IOException {
+        String superLongValue = "%5Cx1A%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%7E%29%5CxEF%5CxBF%5CxBD%5Cx1B+%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5Cx13%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5CxEF%5CxBF%5CxBD%5B";
+
+        createAppendTrieDict(Arrays.asList("a", superLongValue));
+    }
+
+    @Test
+    public void testIllegalFileNameValue() throws IOException {
+        createAppendTrieDict(Arrays.asList("::", ":"));
+    }
+
+    @Test
+    public void testSkipAddValue() throws IOException {
+        createAppendTrieDict(new ArrayList<String>());
+    }
+
+    private void createAppendTrieDict(List<String> valueList) throws IOException {
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-entry-size", "1");
+
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+
+        for (String value : valueList) {
+            builder.addValue(value);
+        }
+
+        builder.build(0);
+    }
+
+    private static class CachedFileFilter implements FileFilter {
+        @Override
+        public boolean accept(File pathname) {
+            return pathname.getName().startsWith("cached_");
+        }
+    }
+
+    private static class VersionFilter implements FileFilter {
+        @Override
+        public boolean accept(File pathname) {
+            return pathname.getName().startsWith(GlobalDictHDFSStore.VERSION_PREFIX);
+        }
+    }
+
+    @Test
+    public void testMultiVersions() throws IOException, InterruptedException {
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-entry-size", "4");
+
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("a");
+        builder.addValue("b");
+        builder.addValue("c");
+        builder.addValue("d");
+        builder.addValue("e");
+        builder.addValue("f");
+        AppendTrieDictionary dict = builder.build(0);
+
+        assertEquals(2, dict.getIdFromValue("b"));
+
+        // re-open dict, append new data
+        builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("g");
+
+        // new data is not visible
+        try {
+            dict.getIdFromValue("g");
+            fail("Value 'g' (g) not exists!");
+        } catch (IllegalArgumentException e) {
+
+        }
+
+        // append data, and be visible for new immutable map
+        builder.addValue("h");
+
+        AppendTrieDictionary newDict = builder.build(0);
+        assert newDict.equals(dict);
+
+        assertEquals(7, newDict.getIdFromValue("g"));
+        assertEquals(8, newDict.getIdFromValue("h"));
+
+        // Check versions retention
+        File dir = new File(LOCAL_BASE_DIR);
+        assertEquals(2, dir.listFiles(new VersionFilter()).length);
+    }
+
+    @Test
+    public void testVersionRetention() throws IOException, InterruptedException {
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-entry-size", "4");
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-max-versions", "1");
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-version-ttl", "1000");
+
+        //String baseDir = KylinConfig.getInstanceFromEnv().getHdfsWorkingDirectory() + "resources/GlobalDict" + RESOURCE_DIR + "/";
+
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("a");
+
+        //version 1
+        builder.build(0);
+
+        // Check versions retention
+        File dir = new File(LOCAL_BASE_DIR);
+        assertEquals(1, dir.listFiles(new VersionFilter()).length);
+
+        // sleep to make version 1 expired
+        Thread.sleep(1000);
+
+        //version 2
+        builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("");
+        builder.build(0);
+
+        // Check versions retention
+        assertEquals(1, dir.listFiles(new VersionFilter()).length);
+    }
+
+    @Test
+    public void testOldDirFormat() throws IOException {
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-entry-size", "4");
+
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("a");
+        builder.addValue("b");
+        builder.addValue("c");
+        builder.addValue("d");
+        builder.addValue("e");
+        builder.addValue("f");
+        builder.build(0);
+
+        convertDirToOldFormat(LOCAL_BASE_DIR);
+
+        File dir = new File(LOCAL_BASE_DIR);
+        assertEquals(0, dir.listFiles(new VersionFilter()).length);
+        assertEquals(3, dir.listFiles(new CachedFileFilter()).length);
+
+        //convert older format to new format when builder init
+        builder = createBuilder(RESOURCE_DIR);
+        builder.build(0);
+
+        assertEquals(1, dir.listFiles(new VersionFilter()).length);
+    }
+
+    private void convertDirToOldFormat(String baseDir) throws IOException {
+        Path basePath = new Path(baseDir);
+        FileSystem fs = HadoopUtil.getFileSystem(basePath);
+
+        // move version dir to base dir, to simulate the older format
+        GlobalDictHDFSStore store = new GlobalDictHDFSStore(baseDir);
+        long[] versions = store.listAllVersions();
+        Path versionPath = store.getVersionDir(versions[versions.length - 1]);
+        Path tmpVersionPath = new Path(versionPath.getParent().getParent(), versionPath.getName());
+        fs.rename(versionPath, tmpVersionPath);
+        fs.delete(new Path(baseDir), true);
+        fs.rename(tmpVersionPath, new Path(baseDir));
+    }
+
+    @Test
+    public void testOldIndexFormat() throws IOException {
+        KylinConfig.getInstanceFromEnv().setProperty("kylin.dictionary.append-entry-size", "4");
+
+        AppendTrieDictionaryBuilder builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("a");
+        builder.addValue("b");
+        builder.addValue("c");
+        builder.addValue("d");
+        builder.addValue("e");
+        builder.addValue("f");
+        builder.build(0);
+
+        convertIndexToOldFormat(LOCAL_BASE_DIR);
+
+        builder = createBuilder(RESOURCE_DIR);
+        builder.addValue("g");
+        builder.addValue("h");
+        builder.addValue("i");
+        AppendTrieDictionary dict = builder.build(0);
+
+        assertEquals(1, dict.getIdFromValue("a"));
+        assertEquals(7, dict.getIdFromValue("g"));
+    }
+
+    private void convertIndexToOldFormat(String baseDir) throws IOException {
+        Path basePath = new Path(baseDir);
+        FileSystem fs = HadoopUtil.getFileSystem(basePath);
+
+        GlobalDictHDFSStore store = new GlobalDictHDFSStore(baseDir);
+        long[] versions = store.listAllVersions();
+        GlobalDictMetadata metadata = store.getMetadata(versions[versions.length - 1]);
+
+        //convert v2 index to v1 index
+        Path versionPath = store.getVersionDir(versions[versions.length - 1]);
+        Path v2IndexFile = new Path(versionPath, V2_INDEX_NAME);
+
+        fs.delete(v2IndexFile, true);
+        GlobalDictHDFSStore.IndexFormat indexFormatV1 = new GlobalDictHDFSStore.IndexFormatV1(fs, HadoopUtil.getCurrentConfiguration());
+        indexFormatV1.writeIndexFile(versionPath, metadata);
+
+        //convert v2 fileName format to v1 fileName format
+        for (Map.Entry<DictSliceKey, String> entry : metadata.sliceFileMap.entrySet()) {
+            fs.rename(new Path(versionPath, entry.getValue()), new Path(versionPath, "cached_" + entry.getKey()));
+        }
+    }
+
 }

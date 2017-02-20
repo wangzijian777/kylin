@@ -28,6 +28,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.HadoopUtil;
 
+import static org.apache.kylin.dict.GlobalDictHDFSStore.BUFFER_SIZE;
+
 /**
  * Created by sunyerui on 16/11/15.
  */
@@ -67,16 +69,15 @@ public class AppendTrieDictionaryChecker {
                 listDictSlicePath(fs, status, list);
             }
         } else {
-            if (path.getPath().getName().startsWith(CachedTreeMap.CACHED_PREFIX)) {
+            if (path.getPath().getName().startsWith(GlobalDictHDFSStore.IndexFormatV1.SLICE_PREFIX)) {
                 list.add(path.getPath());
             }
         }
     }
 
     public boolean doCheck(FileSystem fs, Path filePath) {
-        try (FSDataInputStream input = fs.open(filePath, CachedTreeMap.BUFFER_SIZE)) {
-            AppendTrieDictionary.DictSlice slice = new AppendTrieDictionary.DictSlice();
-            slice.readFields(input);
+        try (FSDataInputStream input = fs.open(filePath, BUFFER_SIZE)) {
+            DictSlice slice = DictSlice.deserializeFrom(input);
             return slice.doCheck();
         } catch (Exception e) {
             return false;
