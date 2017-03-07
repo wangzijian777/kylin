@@ -16,7 +16,7 @@
  * limitations under the License.
 */
 
-package org.apache.hadoop.hbase.filter;
+package org.apache.kylin.storage.hbase.cube.v2;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +29,8 @@ import org.apache.hadoop.hbase.KeyValueUtil;
 import org.apache.hadoop.hbase.classification.InterfaceAudience;
 import org.apache.hadoop.hbase.classification.InterfaceStability;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
+import org.apache.hadoop.hbase.filter.Filter;
+import org.apache.hadoop.hbase.filter.FilterBase;
 import org.apache.hadoop.hbase.protobuf.generated.FilterProtos;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.BytesBytesPair;
 import org.apache.hadoop.hbase.util.ByteStringer;
